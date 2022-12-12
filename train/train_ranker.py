@@ -85,7 +85,7 @@ def ingest_prodigy_ranks(filename):
                 except (KeyError, IndexError):
                     continue
 
-            elif obj['answer'] != 'accept':
+            else:
                 correct_id = 4
 
             try:

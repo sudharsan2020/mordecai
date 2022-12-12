@@ -114,8 +114,6 @@ with jsonlines.open('geo_annotated/geo_country_db.jsonl') as reader:
                 Y.append(label)
             except Exception as e:
                 error_count += 1
-                pass
-
 print(error_count)
 
 # format numpy

@@ -37,7 +37,7 @@ class Geoparser:
                 self.nlp = spacy.load('en_core_web_lg', disable=['parser', 'tagger']) 
             except OSError:
                 print("""ERROR: No spaCy NLP model installed. Install with this command: 
-                `python -m spacy download en_core_web_lg`.""") 
+                `python -m spacy download en_core_web_lg`.""")
         self._cts = utilities.country_list_maker()
         self._just_cts = utilities.country_list_maker()
         self._inv_cts = utilities.make_inv_cts(self._cts)
@@ -63,7 +63,7 @@ class Geoparser:
         self.verbose = verbose  # return the full dictionary or just the good parts?
         self.progress = progress  # display progress bars?
         self.threads = threads
-        if 'n_threads' in kwargs.keys():
+        if 'n_threads' in kwargs:
             warnings.warn("n_threads is deprecated. Use threads=True instead.", DeprecationWarning)
         try:
             # https://www.reddit.com/r/Python/comments/3a2erd/exception_catch_not_catching_everything/
@@ -116,8 +116,7 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
             two = ""
             two_count = 0
 
-        countries = (top, top_count, two, two_count)
-        return countries
+        return top, top_count, two, two_count
 
 
     def clean_entity(self, ent):
@@ -140,11 +139,7 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
                     'town', 'village', 'prison', "river", "valley", "provincial", "prison",
                     "region", "municipality", "state", "territory", "of", "in",
                     "county", "central"]
-        keep_positions = []
-        for word in ent:
-            if word.text.lower() not in dump_list:
-                keep_positions.append(word.i)
-
+        keep_positions = [word.i for word in ent if word.text.lower() not in dump_list]
         keep_positions = np.asarray(keep_positions)
         try:
             new_ent = ent.doc[keep_positions.min():keep_positions.max() + 1]
@@ -173,9 +168,7 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
             country_count = Counter([i['country_code3'] for i in results['hits']['hits']])
             most_common = country_count.most_common()[0][0]
             return most_common
-        except IndexError:
-            return ""
-        except TypeError:
+        except (IndexError, TypeError):
             return ""
 
 
@@ -198,10 +191,7 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
         try:
             alt_names = [len(i['alternativenames']) for i in results['hits']['hits']]
             most_alt = results['hits']['hits'][np.array(alt_names).argmax()]
-            if full_results:
-                return most_alt
-            else:
-                return most_alt['country_code3']
+            return most_alt if full_results else most_alt['country_code3']
         except (IndexError, ValueError, TypeError):
             return ""
 
@@ -260,11 +250,12 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
         if confid == 0 or confid2 == 0:
             return ""
         country_code = self._cts[str(self._ct_nlp[ranks[0]])]
-        country_picking = {"country_1" : country_code,
-                "confid_a" : confid,
-                "confid_b" : confid2,
-                "country_2" : self._cts[str(self._ct_nlp[ranks[1]])]}
-        return country_picking
+        return {
+            "country_1": country_code,
+            "confid_a": confid,
+            "confid_b": confid2,
+            "country_2": self._cts[str(self._ct_nlp[ranks[1]])],
+        }
 
 
     def _feature_first_back(self, results):
@@ -290,17 +281,13 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
             second_back = results['hits']['hits'][1]['country_code3']
         except (TypeError, IndexError):
             second_back = ""
-        top = (first_back, second_back)
-        return top
+        return first_back, second_back
 
 
     def is_country(self, text):
         """Check if a piece of text is in the list of countries"""
         ct_list = self._just_cts.keys()
-        if text in ct_list:
-            return True
-        else:
-            return False
+        return text in ct_list
 
 
     @lru_cache(maxsize=250)
@@ -325,13 +312,13 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
             q = {"multi_match": {"query": placename,
                                  "fields": ['name', 'asciiname', 'alternativenames'],
                                 "type" : "phrase"}}
-            res = self.conn.filter("term", feature_code='PCLI').query(q)[0:5].execute()  # always 5
+            res = self.conn.filter("term", feature_code='PCLI').query(q)[:5].execute()
         else:
             # second, try for an exact phrase match
             q = {"multi_match": {"query": placename,
                                  "fields": ['name^5', 'asciiname^5', 'alternativenames'],
                                 "type" : "phrase"}}
-            res = self.conn.query(q)[0:50].execute()
+            res = self.conn.query(q)[:50].execute()
             # if no results, use some fuzziness, but still require all terms to be present.
             # Fuzzy is not allowed in "phrase" searches.
             if res.hits.total == 0:
@@ -342,9 +329,8 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
                                          "operator":   "and"
                                      }
                     }
-                res = self.conn.query(q)[0:50].execute()
-        es_result = utilities.structure_results(res)
-        return es_result
+                res = self.conn.query(q)[:50].execute()
+        return utilities.structure_results(res)
 
 
     #@lru_cache(maxsize=250)  # cache won't work with dictionary inputs
@@ -370,9 +356,14 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
                              "fields": ['name^5', 'asciiname^5', 'alternativenames'],
                             "type": "phrase"}}
         if filter_params:
-            res = self.conn.filter("term", **filter_params).filter("term", country_code3=country).query(q)[0:50].execute()
+            res = (
+                self.conn.filter("term", **filter_params)
+                .filter("term", country_code3=country)
+                .query(q)[:50]
+                .execute()
+            )
         else:
-            res = self.conn.filter("term", country_code3=country).query(q)[0:50].execute()
+            res = self.conn.filter("term", country_code3=country).query(q)[:50].execute()
 
         # if no results, use some fuzziness, but still require all terms to be present.
         # Fuzzy is not allowed in "phrase" searches.
@@ -383,11 +374,15 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
                                      "fuzziness": 2,
                                      "operator":   "and"}}
             if filter_params:
-                res = self.conn.filter("term", **filter_params).filter("term", country_code3=country).query(q)[0:50].execute()
+                res = (
+                    self.conn.filter("term", **filter_params)
+                    .filter("term", country_code3=country)
+                    .query(q)[:50]
+                    .execute()
+                )
             else:
-                res = self.conn.filter("term", country_code3=country).query(q)[0:50].execute()
-        out = utilities.structure_results(res)
-        return out
+                res = self.conn.filter("term", country_code3=country).query(q)[:50].execute()
+        return utilities.structure_results(res)
 
  
 
@@ -641,7 +636,7 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
         most_alt = loc['features']['most_alt']
         most_pop = loc['features']['most_pop']
 
-        possible_labels = set([top, two, word_vec, first_back, most_alt, most_pop])
+        possible_labels = {top, two, word_vec, first_back, most_alt, most_pop}
         possible_labels = [i for i in possible_labels if i]
 
         X_mat = []
@@ -664,10 +659,11 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
             features = np.concatenate([x, exists, counts, right])
             X_mat.append(np.asarray(features))
 
-        keras_inputs = {"labels": possible_labels,
-                        "matrix": np.asmatrix(X_mat),
-                        "word": loc['word']}
-        return keras_inputs
+        return {
+            "labels": possible_labels,
+            "matrix": np.asmatrix(X_mat),
+            "word": loc['word'],
+        }
 
 
 
@@ -709,8 +705,6 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
         if not hasattr(doc, "ents"):
             doc = self.nlp(doc)
         proced = self.make_country_features(doc, require_maj=False)
-        if not proced:
-            pass
         feat_list = []
 
         for loc in proced:
@@ -720,7 +714,7 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
             feat_list.append(feat)
             #try:
             # for each potential country...
-            for n, i in enumerate(feat_list):
+            for i in feat_list:
                 labels = i['labels']
                 try:
                     prediction = self.country_model.predict(i['matrix']).transpose()[0]
@@ -761,8 +755,7 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
         """
         lookup_key = ".".join([country_code2, admin1_code])
         try:
-            admin1_name = self._admin1_dict[lookup_key]
-            return admin1_name
+            return self._admin1_dict[lookup_key]
         except KeyError:
             #print("No admin code found for country {} and code {}".format(country_code2, admin1_code))
             return "NA"
@@ -802,30 +795,17 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
             except Exception as e:
                 pop = 0
                 has_pop = 0
-            if pop > 0:
-                logp = np.log(pop)
-            else:
-                logp = 0
+            logp = np.log(pop) if pop > 0 else 0
             ### order the results came back
             adj_rank = 1 / np.log(rank + 2)
             # alternative names
             len_alt = len(entry['alternativenames'])
             adj_alt = np.log(len_alt)
             ### feature class (just boost the good ones)
-            if entry['feature_class'] == "A" or entry['feature_class'] == "P":
-                good_type = 1
-            else:
-                good_type = 0
-                #fc_score = 3
+            good_type = 1 if entry['feature_class'] in ["A", "P"] else 0
             ### feature class/code matching
-            if entry['feature_class'] == class_mention:
-                good_class_mention = 1
-            else:
-                good_class_mention = 0
-            if entry['feature_code'] == code_mention:
-                good_code_mention = 1
-            else:
-                good_code_mention = 0
+            good_class_mention = 1 if entry['feature_class'] == class_mention else 0
+            good_code_mention = 1 if entry['feature_code'] == code_mention else 0
             ### edit distance
             ed = editdistance.eval(search_name, entry['name'])
             ed = ed  # shrug
@@ -928,28 +908,29 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
         """
         try:
             lat, lon = entry['coordinates'].split(",")
-            new_res = {"admin1" : self.get_admin1(entry['country_code2'], entry['admin1_code']),
-                  "lat" : lat,
-                  "lon" : lon,
-                  "country_code3" : entry["country_code3"],
-                  "geonameid" : entry["geonameid"],
-                  "place_name" : entry["name"],
-                  "feature_class" : entry["feature_class"],
-                   "feature_code" : entry["feature_code"]}
-            return new_res
+            return {
+                "admin1": self.get_admin1(
+                    entry['country_code2'], entry['admin1_code']
+                ),
+                "lat": lat,
+                "lon": lon,
+                "country_code3": entry["country_code3"],
+                "geonameid": entry["geonameid"],
+                "place_name": entry["name"],
+                "feature_class": entry["feature_class"],
+                "feature_code": entry["feature_code"],
+            }
         except (IndexError, TypeError):
-            # two conditions for these errors:
-            # 1. there are no results for some reason (Index)
-            # 2. res is set to "" because the country model was below the thresh
-            new_res = {"admin1" : "",
-                  "lat" : "",
-                  "lon" : "",
-                  "country_code3" : "",
-                  "geonameid" : "",
-                  "place_name" : "",
-                  "feature_class" : "",
-                   "feature_code" : ""}
-            return new_res
+            return {
+                "admin1": "",
+                "lat": "",
+                "lon": "",
+                "country_code3": "",
+                "geonameid": "",
+                "place_name": "",
+                "feature_class": "",
+                "feature_code": "",
+            }
 
     def _check_exact(self, placename, match_list):
         """Find Geonames entries that have an exact match place name.
@@ -1047,9 +1028,12 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
         res = self.query_geonames_country(city, country, adm_limit)
         res = res['hits']['hits']
 
-        # look for a city first
-        match = [i for i in res if i['feature_code'] in ['PPL', 'PPLA', 'PPLC', 'PPLA2', 'PPLA3', 'PPLA3']]
-        if match:
+        if match := [
+            i
+            for i in res
+            if i['feature_code']
+            in ['PPL', 'PPLA', 'PPLC', 'PPLA2', 'PPLA3', 'PPLA3']
+        ]:
             if len(match) == 1:
                 return {"geo" : match[0],
                         "query" : city,
@@ -1070,9 +1054,9 @@ https://github.com/openeventdata/mordecai/ for instructions on updating.""".form
                         "info": info,
                         "reason" : reason}
 
-        # if there's no city match, look for a neighborhood
-        match = [i for i in res if i['feature_code'] in ['PPLX', 'LCTY', 'PPLL', 'AREA']]
-        if match:
+        if match := [
+            i for i in res if i['feature_code'] in ['PPLX', 'LCTY', 'PPLL', 'AREA']
+        ]:
             #print("neighborhood")
             # if there's just a single match, we're done
             if len(match) == 1:

@@ -11,17 +11,13 @@ def main(in_file: ("input CSV file"),
          country_col: ("column in CSV with country name") = "country"):
     """Geocode a csv with a city, ADM1, and country columns."""
     print("Loading Mordecai...")
-    geo = Geoparser() 
+    geo = Geoparser()
     df = pd.read_csv(in_file)
     geocoded = []
     print("Geocoding...")
     for i in tqdm(df.iterrows()):
         row = i[1]
-        if pd.isnull(row[adm1_col]):
-            # Elasticsearch doesn't like NaN, change to None
-            adm1 = None
-        else:
-            adm1 = row[adm1_col] 
+        adm1 = None if pd.isnull(row[adm1_col]) else row[adm1_col]
         res = geo.lookup_city(city = row[city_col], 
                               adm1 = adm1, 
                               country = row[country_col])
